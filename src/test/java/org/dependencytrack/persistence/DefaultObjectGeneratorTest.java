@@ -68,7 +68,7 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         Method method = generator.getClass().getDeclaredMethod("loadDefaultRepositories");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(10, qm.getAllRepositories().size());
+        Assert.assertEquals(11, qm.getAllRepositories().size());
     }
 
     @Test
@@ -77,7 +77,7 @@ public class DefaultObjectGeneratorTest extends PersistenceCapableTest {
         Method method = generator.getClass().getDeclaredMethod("loadDefaultConfigProperties");
         method.setAccessible(true);
         method.invoke(generator);
-        Assert.assertEquals(33, qm.getConfigProperties().size());
+        Assert.assertEquals(37, qm.getConfigProperties().size());
     }
 
     @Test

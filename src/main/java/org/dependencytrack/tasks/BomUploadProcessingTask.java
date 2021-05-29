@@ -32,6 +32,7 @@ import org.dependencytrack.model.Bom;
 import org.dependencytrack.model.Component;
 import org.dependencytrack.model.ConfigPropertyConstants;
 import org.dependencytrack.model.Project;
+import org.dependencytrack.model.ServiceComponent;
 import org.dependencytrack.notification.NotificationConstants;
 import org.dependencytrack.notification.NotificationGroup;
 import org.dependencytrack.notification.NotificationScope;
@@ -70,20 +71,25 @@ public class BomUploadProcessingTask implements Subscriber {
                 final Project project = qm.getObjectByUuid(Project.class, event.getProjectUuid());
                 final List<Component> components;
                 final List<Component> flattenedComponents = new ArrayList<>();
+                final List<ServiceComponent> services;
+                final List<ServiceComponent> flattenedServices = new ArrayList<>();
 
                 // Holds a list of all Components that are existing dependencies of the specified project
                 final List<Component> existingProjectComponents = qm.getAllComponents(project);
+                final List<ServiceComponent> existingProjectServices = qm.getAllServiceComponents(project);
                 final String bomString = new String(bomBytes, StandardCharsets.UTF_8);
                 final Bom.Format bomFormat;
                 final String bomSpecVersion;
+                org.cyclonedx.model.Bom cycloneDxBom = null;
                 if (BomParserFactory.looksLikeCycloneDX(bomBytes)) {
                     if (qm.isEnabled(ConfigPropertyConstants.ACCEPT_ARTIFACT_CYCLONEDX)) {
                         LOGGER.info("Processing CycloneDX BOM uploaded to project: " + event.getProjectUuid());
                         bomFormat = Bom.Format.CYCLONEDX;
                         final Parser parser = BomParserFactory.createParser(bomBytes);
-                        final org.cyclonedx.model.Bom bom = parser.parse(bomBytes);
-                        bomSpecVersion = bom.getSpecVersion();
-                        components = ModelConverter.convert(qm, bom, project);
+                        cycloneDxBom = parser.parse(bomBytes);
+                        bomSpecVersion = cycloneDxBom.getSpecVersion();
+                        components = ModelConverter.convertComponents(qm, cycloneDxBom, project);
+                        services = ModelConverter.convertServices(qm, cycloneDxBom, project);
                     } else {
                         LOGGER.warn("A CycloneDX BOM was uploaded but accepting CycloneDX BOMs is disabled. Aborting");
                         return;
@@ -94,6 +100,7 @@ public class BomUploadProcessingTask implements Subscriber {
                         bomFormat = Bom.Format.SPDX;
                         final SpdxDocumentParser parser = new SpdxDocumentParser(qm);
                         components = parser.parse(bomBytes, project);
+                        services = new ArrayList<>(); // SPDX does not support services
                         bomSpecVersion = parser.getSpecVersion(); // Must come after the parsing is performed
                     } else {
                         LOGGER.warn("A SPDX BOM was uploaded but accepting SPDX BOMs is disabled. Aborting");
@@ -116,8 +123,17 @@ public class BomUploadProcessingTask implements Subscriber {
                 for (final Component component: components) {
                     processComponent(qm, bom, component, flattenedComponents);
                 }
-                LOGGER.debug("Reconciling dependencies for project " + event.getProjectUuid());
+                for (final ServiceComponent service: services) {
+                    processService(qm, bom, service, flattenedServices);
+                }
+                if (Bom.Format.CYCLONEDX == bomFormat) {
+                    LOGGER.info("Processing CycloneDX dependency graph for project: " + event.getProjectUuid());
+                    ModelConverter.generateDependencies(qm, cycloneDxBom, project, components);
+                }
+                LOGGER.debug("Reconciling components for project " + event.getProjectUuid());
                 qm.reconcileComponents(project, existingProjectComponents, flattenedComponents);
+                LOGGER.debug("Reconciling services for project " + event.getProjectUuid());
+                qm.reconcileServiceComponents(project, existingProjectServices, flattenedServices);
                 LOGGER.debug("Updating last import date for project " + event.getProjectUuid());
                 qm.updateLastBomImport(project, date, bomFormat.getFormatShortName() + " " + bomSpecVersion);
                 // Instead of firing off a new VulnerabilityAnalysisEvent, chain the VulnerabilityAnalysisEvent to
@@ -130,7 +146,7 @@ public class BomUploadProcessingTask implements Subscriber {
                 final VulnerabilityAnalysisEvent vae = new VulnerabilityAnalysisEvent(detachedFlattenedComponent).project(detachedProject);
                 vae.setChainIdentifier(event.getChainIdentifier());
                 Event.dispatch(vae);
-                LOGGER.info("Processed " + flattenedComponents.size() + " components uploaded to project " + event.getProjectUuid());
+                LOGGER.info("Processed " + flattenedComponents.size() + " components and " + flattenedServices.size() + " services uploaded to project " + event.getProjectUuid());
                 Notification.dispatch(new Notification()
                         .scope(NotificationScope.PORTFOLIO)
                         .group(NotificationGroup.BOM_PROCESSED)
@@ -142,6 +158,7 @@ public class BomUploadProcessingTask implements Subscriber {
                 LOGGER.error("Error while processing bom", ex);
             } finally {
                 qm.commitSearchIndex(true, Component.class);
+                qm.commitSearchIndex(true, ServiceComponent.class);
                 qm.close();
             }
         }
@@ -158,6 +175,19 @@ public class BomUploadProcessingTask implements Subscriber {
         if (component.getChildren() != null) {
             for (final Component child : component.getChildren()) {
                 processComponent(qm, bom, child, flattenedComponents);
+            }
+        }
+    }
+
+    private void processService(final QueryManager qm, final Bom bom, ServiceComponent service,
+                                  final List<ServiceComponent> flattenedServices) {
+        service = qm.createServiceComponent(service, false);
+        final long oid = service.getId();
+        // Refreshing the object by querying for it again is preventative
+        flattenedServices.add(qm.getObjectById(ServiceComponent.class, oid));
+        if (service.getChildren() != null) {
+            for (final ServiceComponent child : service.getChildren()) {
+                processService(qm, bom, child, flattenedServices);
             }
         }
     }

@@ -223,13 +223,15 @@ public class Component implements Serializable {
     @Persistent(defaultFetchGroup = "true")
     @Index(name = "COMPONENT_PURL_IDX")
     @Size(max = 255)
-    @Pattern(regexp = RegexSequence.Definition.HTTP_URI, message = "The Package URL (purl) must be a valid URI and conform to https://github.com/package-url/purl-spec")
+    @com.github.packageurl.validator.PackageURL
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
     private String purl;
 
     @Persistent(defaultFetchGroup = "true")
     @Index(name = "COMPONENT_PURL_COORDINATES_IDX")
     @Size(max = 255)
-    @Pattern(regexp = RegexSequence.Definition.HTTP_URI, message = "The Package URL (purl) must be a valid URI and conform to https://github.com/package-url/purl-spec")
+    @com.github.packageurl.validator.PackageURL
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
     private String purlCoordinates; // Field should contain only type, namespace, name, and version. Everything up to the qualifiers
 
     @Persistent
@@ -268,6 +270,11 @@ public class Component implements Serializable {
     @Column(name = "LICENSE_ID")
     private License resolvedLicense;
 
+    @Persistent(defaultFetchGroup = "true")
+    @Column(name = "DIRECT_DEPENDENCIES", jdbcType = "CLOB")
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
+    private String directDependencies; // This will be a JSON string
+
     @Persistent
     @Column(name = "PARENT_COMPONENT_ID")
     private Component parent;
@@ -283,6 +290,7 @@ public class Component implements Serializable {
     private List<Vulnerability> vulnerabilities;
 
     @Persistent(defaultFetchGroup = "true")
+    @Index(name = "COMPONENT_PROJECT_ID_IDX")
     @Column(name = "PROJECT_ID", allowsNull = "false")
     @NotNull
     private Project project;
@@ -295,12 +303,21 @@ public class Component implements Serializable {
     @Column(name = "LAST_RISKSCORE", allowsNull = "true") // New column, must allow nulls on existing databases))
     private Double lastInheritedRiskScore;
 
+    /**
+     * Sticky notes
+     */
+    @Persistent(defaultFetchGroup = "true")
+    @Column(name = "TEXT", jdbcType = "CLOB")
+    @JsonDeserialize(using = TrimmedStringDeserializer.class)
+    private String notes;
+
     @Persistent(customValueStrategy = "uuid")
     @Unique(name = "COMPONENT_UUID_IDX")
     @Column(name = "UUID", jdbcType = "VARCHAR", length = 36, allowsNull = "false")
     @NotNull
     private UUID uuid;
 
+    private transient String bomRef;
     private transient DependencyMetrics metrics;
     private transient RepositoryMetaComponent repositoryMeta;
     private transient int usedBy;
@@ -486,6 +503,9 @@ public class Component implements Serializable {
 
     @JsonSerialize(using = CustomPackageURLSerializer.class)
     public PackageURL getPurl() {
+        if (purl == null) {
+            return null;
+        }
         try {
             return new PackageURL(purl);
         } catch (MalformedPackageURLException e) {
@@ -496,11 +516,20 @@ public class Component implements Serializable {
     public void setPurl(PackageURL purl) {
         if (purl != null) {
             this.purl = purl.canonicalize();
+        } else {
+            this.purl = null;
         }
+    }
+
+    public void setPurl(String purl) {
+        this.purl = purl;
     }
 
     @JsonSerialize(using = CustomPackageURLSerializer.class)
     public PackageURL getPurlCoordinates() {
+        if (purlCoordinates == null) {
+            return null;
+        }
         try {
             return new PackageURL(purlCoordinates);
         } catch (MalformedPackageURLException e) {
@@ -509,7 +538,15 @@ public class Component implements Serializable {
     }
 
     public void setPurlCoordinates(PackageURL purlCoordinates) {
-        this.purlCoordinates = purlCoordinates.canonicalize();
+        if (purlCoordinates != null) {
+            this.purlCoordinates = purlCoordinates.canonicalize();
+        } else {
+            this.purlCoordinates = null;
+        }
+    }
+
+    public void setPurlCoordinates(String purlCoordinates) {
+        this.purlCoordinates = purlCoordinates;
     }
 
     public String getSwidTagId() {
@@ -563,6 +600,14 @@ public class Component implements Serializable {
         this.resolvedLicense = resolvedLicense;
     }
 
+    public String getDirectDependencies() {
+        return directDependencies;
+    }
+
+    public void setDirectDependencies(String directDependencies) {
+        this.directDependencies = directDependencies;
+    }
+
     public Component getParent() {
         return parent;
     }
@@ -606,6 +651,14 @@ public class Component implements Serializable {
         this.project = project;
     }
 
+    public String getNotes() {
+        return notes;
+    }
+
+    public void setNotes(String notes) {
+        this.notes = notes;
+    }
+
     public UUID getUuid() {
         return uuid;
     }
@@ -636,6 +689,14 @@ public class Component implements Serializable {
 
     public void setLastInheritedRiskScore(Double lastInheritedRiskScore) {
         this.lastInheritedRiskScore = lastInheritedRiskScore;
+    }
+
+    public String getBomRef() {
+        return bomRef;
+    }
+
+    public void setBomRef(String bomRef) {
+        this.bomRef = bomRef;
     }
 
     public int getUsedBy() {

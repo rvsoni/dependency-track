@@ -21,6 +21,10 @@ generating CycloneDX BOMs from various build systems.
 The [Dependency-Track Jenkins Plugin](https://plugins.jenkins.io/dependency-track/) is the 
 recommended method for publishing CycloneDX BOMs to Dependency-Track in a Jenkins environment.
 
+For GitHub workflow environments the
+[Dependency-Track GitHub Action](https://github.com/marketplace/actions/upload-bom-to-dependency-track)
+is recommended.
+
 For other environments, cURL (or similar) can be used. 
 
 #### CycloneDX or SPDX BOM
@@ -41,7 +45,7 @@ It's also possible to publish BOMs via HTTP POST which does not require Base64 e
  
 ```bash
 curl -X "POST" "http://dtrack.example.com/api/v1/bom" \
-     -H 'Content-Type: multipart/form-data; charset=utf-8; boundary=__X_CURL_BOUNDARY__' \
+     -H 'Content-Type: multipart/form-data' \
      -H 'X-Api-Key: LPojpCDSsEd4V9Zi6qCWr4KsiF3Konze' \
      -F "project=f90934f5-cb88-47ce-81cb-db06fc67d4b4" \
      -F "bom=<?xml version=\"1.0\" encoding=\"UTF-8\"?>..."
@@ -58,3 +62,16 @@ curl -X "PUT" "http://dtrack.example.com/api/v1/bom" \
      -d @payload.json
 ```
 
+### Alternative parameters
+In lieu of specifying the UUID of an existing project, the project name and version can be specified as an alternative. 
+If the project does not exist, it can optionally be automatically created using the `autoCreate` parameter.
+
+```bash
+curl -X "POST" "http://dtrack.example.com/api/v1/bom"
+     -H 'Content-Type: multipart/form-data'
+     -H "X-Api-Key: xxxxxxx"
+     -F "autoCreate=true"
+     -F "projectName=xxxx"
+     -F "projectVersion=xxxx"
+     -F "bom=@target/bom.xml"
+```
